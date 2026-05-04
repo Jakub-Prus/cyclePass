@@ -23,6 +23,8 @@ CyclePass treats this as a road-segment classification problem with structured o
 - `confidence`
 - explanation fields derived from map, image, and rules signals
 
+The 5-class list above is the canonical product taxonomy. The MVP uses a 4-class operational model that merges `legally allowed but uncomfortable` into `not suitable for cycling` for the initial release. That mapping should remain explicit everywhere the model, labels, or metrics are defined.
+
 ## Recommended Product Direction
 
 - GIS scoring API for road segments
@@ -42,11 +44,78 @@ Classes:
 3. sidewalk/shared path usable by bike
 4. not suitable for cycling
 
+MVP mapping from the canonical taxonomy:
+
+- dedicated/protected cycling space -> class 1
+- calm mixed traffic street -> class 2
+- rideable sidewalk/shared path -> class 3
+- legally allowed but uncomfortable -> class 4
+- not suitable / not allowed -> class 4
+
 The first implementation should be hybrid:
 
 - rule baseline from OSM tags
-- vision model only for ambiguous segments
+- vision model only for ambiguous rule outcomes
 - class + confidence + explanation output
+
+## Minimal MVP Stack
+
+The repository now includes a minimal product-shaped MVP with:
+
+- `frontend/`: `React + Vite + TypeScript`
+- `backend/`: `FastAPI`
+- `scripts/`: small Python helper scripts
+
+What it does:
+
+- searches a place with Nominatim through the backend
+- fetches nearby OSM roads from Overpass through the backend
+- scores each segment with explicit Python rules
+- renders the scored road segments on a React map UI
+- shows comfort score, allowed state, confidence, and rule trace
+
+Free data used:
+
+- OpenStreetMap tiles
+- Nominatim geocoding
+- Overpass API road tags
+
+## Run Locally
+
+Backend:
+
+1. `python -m venv .venv`
+2. `.venv\\Scripts\\activate`
+3. `pip install -r backend/requirements.txt`
+4. `uvicorn backend.app.main:app --reload --port 8001`
+
+Frontend:
+
+1. `cd frontend`
+2. `npm install`
+3. `npm run dev`
+4. Open `http://localhost:5173`
+
+## Validation
+
+Python rule checks:
+
+- `python -m unittest backend.tests.test_scoring`
+
+Sample local script:
+
+- `python scripts/sample_analysis.py`
+
+## Frontend-Only Evaluation
+
+A fully frontend-only architecture is still possible for the rules-only demo, but it stops being the right choice once you want:
+
+- stable API access without browser-side rate-limit pain
+- reusable scoring logic shared across UI and scripts
+- offline experiments or batch scoring
+- later image-model integration
+
+That is why this MVP uses React on the frontend and Python on the backend, while still staying free-data-only and easy to understand.
 
 ## Repository Docs
 

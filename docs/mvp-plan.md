@@ -9,6 +9,8 @@ Build a city-scale pilot that classifies road segments into four classes:
 3. sidewalk/shared path usable by bike
 4. not suitable for cycling
 
+These are MVP operational classes derived from the canonical 5-class product taxonomy. For Phase 1, `legally allowed but uncomfortable` and `not suitable / not allowed` are merged into class 4.
+
 ## Scope
 
 Inputs:
@@ -76,8 +78,13 @@ Annotators should see:
 
 ## Success Criteria
 
-- segment-level predictions are explainable
-- uncertainty is surfaced explicitly
-- rules baseline handles easy cases reliably
-- vision model improves ambiguous cases
-- system is usable for routing or QA workflows
+- segment-level predictions are explainable, with stored rule traces or top contributing signals for at least `95%` of scored segments
+- uncertainty is surfaced explicitly, with an abstention or `uncertain` path for low-confidence segments
+- the labeled evaluation set uses fixed train/validation/test splits with geography held out to reduce leakage
+- MVP 4-class macro F1 on the held-out test set is at least `0.70`
+- no individual MVP class has F1 below `0.60`
+- calibration error is tracked and reviewed before release
+- the escalated vision path outperforms the rules-only baseline on the ambiguous subset
+- at least one downstream benchmark is defined:
+  - routing: preferred-route agreement against curated bicycle routes
+  - QA: precision at top-k for likely missing or inconsistent OSM bike tags

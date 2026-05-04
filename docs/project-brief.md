@@ -38,13 +38,27 @@ For each road segment:
 
 ## Suggested Classification Taxonomy
 
-Primary classes:
+Canonical product classes:
 
 1. dedicated/protected cycling space
 2. calm mixed traffic street
 3. rideable sidewalk/shared path
 4. legally allowed but uncomfortable
 5. not suitable / not allowed
+
+MVP operational classes:
+
+1. protected / dedicated bike infrastructure
+2. low-stress mixed street
+3. sidewalk/shared path usable by bike
+4. not suitable for cycling
+
+MVP mapping:
+
+- canonical class 1 -> MVP class 1
+- canonical class 2 -> MVP class 2
+- canonical class 3 -> MVP class 3
+- canonical classes 4 and 5 -> MVP class 4
 
 ## Annotation Dimensions
 
@@ -58,6 +72,8 @@ Do not start with only a binary crossable label. Capture these dimensions first:
 - confidence
 
 Then derive product-facing labels from those dimensions.
+
+The derivation should preserve the distinction between legal rideability, physical traversability, and comfort/safety class.
 
 ## Risks
 
@@ -73,6 +89,6 @@ Then derive product-facing labels from those dimensions.
 Start with a hybrid rule-based + ML MVP:
 
 - OSM-driven baseline
-- image model for ambiguous segments
+- image model only for ambiguous rule outcomes
 - explainable outputs
 - country-specific rules added later

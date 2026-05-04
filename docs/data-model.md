@@ -8,6 +8,7 @@ Suggested primary record for a road segment:
 segment_id
 geometry
 length_m
+travel_direction
 country_code
 road_class
 maxspeed_kph
@@ -21,7 +22,11 @@ bicycle_access
 intersection_flag
 slope_percent
 image_ids
+image_headings
+image_capture_timestamps
 satellite_tile_ids
+osm_snapshot_timestamp
+last_inference_timestamp
 traffic_proxy
 ```
 
@@ -68,6 +73,12 @@ final_class:
 confidence: 0-1
 ```
 
+Notes:
+
+- `legally_rideable` and `physically_rideable` must remain separate labels
+- `final_class` is the MVP 4-class output
+- the canonical 5-class product taxonomy should be stored as a derived or parallel label when available
+
 ## Derived Score
 
 Suggested v1 score decomposition:
@@ -93,3 +104,13 @@ Store reasons alongside predictions:
 - top detected visual cues
 - model confidence
 - uncertainty reason
+
+## Audit Fields
+
+Add provenance fields to support drift analysis and reprocessing:
+
+- data source identifiers
+- image freshness windows
+- jurisdiction or rule-set version
+- model version
+- label version
