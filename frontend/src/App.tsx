@@ -2,19 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-import { analyzeArea, findRoute, searchLocation } from "./api";
-import type { AnalyzeResponse, RouteResponse, Segment, SegmentClass } from "./types";
+import { findRoute, inspectRoad, searchLocation } from "./api";
+import type { InspectResponse, RouteResponse, Segment, SegmentClass } from "./types";
 
 const DEFAULT_CENTER = { lat: 51.9721, lon: 17.5012 };
-const DEFAULT_INSPECTION_RADIUS_M = 350;
 const DEFAULT_ZOOM = 15;
-const SUMMARY_KEYS: Array<{ key: SegmentClass | "total"; label: string }> = [
-  { key: "total", label: "Segments" },
-  { key: "protected", label: "Protected" },
-  { key: "low-stress", label: "Low-stress" },
-  { key: "shared", label: "Shared" },
-  { key: "not-suitable", label: "Not suitable" },
-];
 
 const CLASS_COLORS: Record<SegmentClass, string> = {
   protected: "#0b8f55",
@@ -28,23 +20,21 @@ const END_MARKER_COLOR = "#c13f30";
 function App() {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
-  const segmentLayerRef = useRef<L.LayerGroup | null>(null);
   const routeLayerRef = useRef<L.LayerGroup | null>(null);
   const pickerLayerRef = useRef<L.LayerGroup | null>(null);
-  const pickModeRef = useRef<"start" | "end" | null>(null);
+  const inspectLayerRef = useRef<L.LayerGroup | null>(null);
+  const pickModeRef = useRef<"start" | "end" | "inspect" | null>(null);
 
   const [startQuery, setStartQuery] = useState("");
   const [endQuery, setEndQuery] = useState("");
-  const [inspectionRadiusM, setInspectionRadiusM] = useState(DEFAULT_INSPECTION_RADIUS_M);
-  const [center, setCenter] = useState(DEFAULT_CENTER);
   const [status, setStatus] = useState("Set a route start and end, then find a bike-safe route.");
   const [isPending, setIsPending] = useState(false);
-  const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
+  const [inspection, setInspection] = useState<InspectResponse | null>(null);
   const [selectedSegment, setSelectedSegment] = useState<Segment | null>(null);
   const [route, setRoute] = useState<RouteResponse | null>(null);
   const [routeStart, setRouteStart] = useState<{ lat: number; lon: number } | null>(null);
   const [routeEnd, setRouteEnd] = useState<{ lat: number; lon: number } | null>(null);
-  const [pickMode, setPickMode] = useState<"start" | "end" | null>(null);
+  const [pickMode, setPickMode] = useState<"start" | "end" | "inspect" | null>(null);
 
   useEffect(() => {
     pickModeRef.current = pickMode;
@@ -79,14 +69,9 @@ function App() {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(map);
 
-    const segmentLayer = L.layerGroup().addTo(map);
     const routeLayer = L.layerGroup().addTo(map);
     const pickerLayer = L.layerGroup().addTo(map);
-
-    map.on("moveend", () => {
-      const mapCenter = map.getCenter();
-      setCenter({ lat: mapCenter.lat, lon: mapCenter.lng });
-    });
+    const inspectLayer = L.layerGroup().addTo(map);
 
     map.on("click", (event: L.LeafletMouseEvent) => {
       const activePickMode = pickModeRef.current;
@@ -98,6 +83,12 @@ function App() {
         lat: event.latlng.lat,
         lon: event.latlng.lng,
       };
+      if (activePickMode === "inspect") {
+        setPickMode(null);
+        void inspectRoadAt(nextPoint);
+        return;
+      }
+
       setRoute(null);
       const formattedPoint = formatPoint(nextPoint);
 
@@ -115,9 +106,9 @@ function App() {
     });
 
     mapInstanceRef.current = map;
-    segmentLayerRef.current = segmentLayer;
     routeLayerRef.current = routeLayer;
     pickerLayerRef.current = pickerLayer;
+    inspectLayerRef.current = inspectLayer;
   }, []);
 
   useEffect(() => {
@@ -171,35 +162,6 @@ function App() {
   }, [routeStart, routeEnd]);
 
   useEffect(() => {
-    if (!analysis || !segmentLayerRef.current) {
-      return;
-    }
-
-    segmentLayerRef.current.clearLayers();
-
-    for (const segment of analysis.segments) {
-      const polyline = L.polyline(
-        segment.geometry.map((point) => [point.lat, point.lon]),
-        {
-          color: CLASS_COLORS[segment.score.bike_crossable_class],
-          weight: 6,
-          opacity: 0.85,
-        }
-      );
-
-      polyline.on("click", () => {
-        setSelectedSegment(segment);
-      });
-
-      polyline.bindPopup(
-        `<strong>${segment.name}</strong><br />${segment.score.bike_crossable_label}<br />Comfort: ${segment.score.bike_comfort}/100`
-      );
-
-      polyline.addTo(segmentLayerRef.current);
-    }
-  }, [analysis]);
-
-  useEffect(() => {
     if (!routeLayerRef.current) {
       return;
     }
@@ -249,22 +211,54 @@ function App() {
       .addTo(routeLayerRef.current);
   }, [route]);
 
-  async function loadAnalysis(lat: number, lon: number, nextRadiusM: number) {
+  useEffect(() => {
+    if (!inspectLayerRef.current) {
+      return;
+    }
+
+    inspectLayerRef.current.clearLayers();
+    if (!inspection) {
+      return;
+    }
+
+    const segment = inspection.segment;
+    L.polyline(
+      segment.geometry.map((point) => [point.lat, point.lon]),
+      {
+        color: CLASS_COLORS[segment.score.bike_crossable_class],
+        weight: 8,
+        opacity: 1,
+      }
+    )
+      .bindPopup(
+        `<strong>${segment.name}</strong><br />${segment.score.bike_crossable_label}<br />Comfort: ${segment.score.bike_comfort}/100`
+      )
+      .addTo(inspectLayerRef.current);
+
+    L.circleMarker([inspection.snapped_point.lat, inspection.snapped_point.lon], {
+      radius: 7,
+      color: "#111827",
+      fillColor: "#f8fafc",
+      fillOpacity: 1,
+      weight: 2,
+    })
+      .bindTooltip("Inspected edge snap")
+      .addTo(inspectLayerRef.current);
+  }, [inspection]);
+
+  async function inspectRoadAt(point: { lat: number; lon: number }) {
     setIsPending(true);
-    setStatus("Fetching nearby road data from the backend...");
+    setStatus("Inspecting the nearest routed edge...");
 
     try {
-      const response = await analyzeArea(lat, lon, nextRadiusM);
-      setAnalysis(response);
-      setSelectedSegment(response.segments[0] ?? null);
-      setStatus(`Loaded ${response.summary.total ?? response.segments.length} nearby road segments.`);
-
-      const map = mapInstanceRef.current;
-      if (map) {
-        map.setView([lat, lon], map.getZoom());
-      }
+      const response = await inspectRoad(point.lat, point.lon);
+      setInspection(response);
+      setSelectedSegment(response.segment);
+      setStatus(
+        `Inspected ${response.segment.name} at ${Math.round(response.snap_distance_m)} m from the clicked point.`
+      );
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Analysis failed.");
+      setStatus(error instanceof Error ? error.message : "Inspection failed.");
     } finally {
       setIsPending(false);
     }
@@ -315,7 +309,6 @@ function App() {
       const response = await findRoute(nextRouteStart, nextRouteEnd);
       setRoute(response);
       setSelectedSegment(response.segments[0] ?? null);
-      setCenter(response.snapped_start);
 
       const map = mapInstanceRef.current;
       if (map) {
@@ -330,8 +323,6 @@ function App() {
       setIsPending(false);
     }
   }
-
-  const summary = analysis?.summary ?? { total: 0, protected: 0, "low-stress": 0, shared: 0, "not-suitable": 0 };
 
   return (
     <div className="layout">
@@ -411,46 +402,34 @@ function App() {
         </form>
 
         <section className="panel controls">
-          <h2>Area inspection</h2>
+          <h2>Road inspection</h2>
           <p className="detail-note">
-            Segment analysis is secondary now. Use it only when you want to inspect the current map center manually.
+            Click the map to inspect the nearest edge known to the self-hosted GraphHopper routing graph.
           </p>
           <div className="button-row">
             <button
               type="button"
               disabled={isPending}
               onClick={() => {
-                void loadAnalysis(center.lat, center.lon, inspectionRadiusM);
+                setPickMode("inspect");
+                setStatus("Click on the map to inspect the nearest routed edge.");
               }}
             >
-              Analyze current map center
+              {pickMode === "inspect" ? "Picking..." : "Inspect on map"}
             </button>
             <button
               type="button"
-              disabled={isPending && !analysis}
+              disabled={isPending && !inspection}
               onClick={() => {
-                setAnalysis(null);
-                segmentLayerRef.current?.clearLayers();
+                setInspection(null);
+                inspectLayerRef.current?.clearLayers();
                 setSelectedSegment(route?.segments[0] ?? null);
-                setStatus("Area inspection roads cleared.");
+                setStatus("Inspection overlay cleared.");
               }}
             >
-              Clear roads
+              Clear inspection
             </button>
           </div>
-
-          <label className="field">
-            <span>Inspection radius</span>
-            <input
-              type="range"
-              min="150"
-              max="900"
-              step="50"
-              value={inspectionRadiusM}
-              onChange={(event) => setInspectionRadiusM(Number(event.target.value))}
-            />
-            <strong>{inspectionRadiusM} m</strong>
-          </label>
         </section>
 
         <section className="panel">
@@ -459,24 +438,10 @@ function App() {
             {Object.entries(CLASS_COLORS).map(([className, color]) => (
               <li key={className}>
                 <span className="swatch" style={{ backgroundColor: color }} />
-                {analysis?.segments.find((segment) => segment.score.bike_crossable_class === className)?.score
-                  .bike_crossable_label ??
-                  fallbackClassLabel(className as SegmentClass)}
+                {fallbackClassLabel(className as SegmentClass)}
               </li>
             ))}
           </ul>
-        </section>
-
-        <section className="panel">
-          <h2>Area summary</h2>
-          <dl className="summary">
-            {SUMMARY_KEYS.map((item) => (
-              <div key={item.key}>
-                <dt>{item.label}</dt>
-                <dd>{summary[item.key] ?? 0}</dd>
-              </div>
-            ))}
-          </dl>
         </section>
 
         <section className="panel">

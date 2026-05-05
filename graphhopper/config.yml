@@ -1,0 +1,43 @@
+graphhopper:
+  datareader.file: graphhopper/runtime/wielkopolskie-latest.osm.pbf
+  graph.location: graphhopper/runtime/graph-cache
+  custom_models.directory: graphhopper/custom_models
+  profiles:
+    - name: cyclepass_bike
+      navigation_mode: bike
+      custom_model_files: [bike.json]
+  profiles_lm:
+    - profile: cyclepass_bike
+  graph.encoded_values: >
+    bike_access, bike_average_speed, bike_priority, bike_road_access, bike_network,
+    road_class, road_environment, roundabout, max_speed, surface, smoothness, lanes,
+    get_off_bike, country, mtb_rating, hike_rating
+  graph.dataaccess.default_type: RAM_STORE
+  prepare.min_network_size: 200
+  prepare.subnetworks.threads: 1
+  routing.non_ch.max_waypoint_distance: 1000000
+  import.osm.ignored_highways: ""
+server:
+  application_connectors:
+    - type: http
+      port: 8989
+      bind_host: localhost
+  admin_connectors:
+    - type: http
+      port: 8990
+      bind_host: localhost
+  request_log:
+    appenders: []
+logging:
+  appenders:
+    - type: file
+      time_zone: UTC
+      current_log_filename: graphhopper/logs/graphhopper.log
+      log_format: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+      archive: true
+      archived_log_filename_pattern: ./graphhopper/logs/graphhopper-%d.log.gz
+      archived_file_count: 30
+      never_block: true
+    - type: console
+      time_zone: UTC
+      log_format: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

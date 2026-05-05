@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from .osm import analyze_area, analyze_route_area, search_location
-from .routing import build_route
+from .graphhopper import GraphHopperRouteError, build_graphhopper_inspection, build_graphhopper_route
+from .osm import analyze_area, search_location
 from .scoring import classify_way, summarize_segments
 
 FRONTEND_DEV_ORIGINS = [
@@ -16,6 +17,11 @@ FRONTEND_DEV_ORIGINS = [
 ]
 SIDEWALK_ELIGIBLE_HIGHWAYS = {"primary", "primary_link", "trunk", "trunk_link"}
 SIDEWALK_PRESENT_VALUES = {"yes", "both", "left", "right"}
+ENABLE_OVERPASS_ANALYSIS = os.getenv("CYCLEPASS_ENABLE_OVERPASS_INSPECTION", "0") == "1"
+OVERPASS_DISABLED_MESSAGE = (
+    "Area inspection is disabled in self-hosted mode. "
+    "Set CYCLEPASS_ENABLE_OVERPASS_INSPECTION=1 to re-enable the legacy Overpass inspection endpoint."
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,9 +52,18 @@ class RouteRequest(BaseModel):
     end_lon: float
 
 
+class InspectRequest(BaseModel):
+    lat: float
+    lon: float
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "routing_provider": "graphhopper",
+        "overpass_inspection": "enabled" if ENABLE_OVERPASS_ANALYSIS else "disabled",
+    }
 
 
 @app.get("/api/search")
@@ -66,6 +81,9 @@ def search(query: str) -> list[dict[str, float | str]]:
 
 @app.post("/api/analyze")
 def analyze(payload: AnalyzeRequest) -> dict[str, object]:
+    if not ENABLE_OVERPASS_ANALYSIS:
+        raise HTTPException(status_code=503, detail=OVERPASS_DISABLED_MESSAGE)
+
     try:
         LOGGER.info(
             "Area analysis started lat=%.6f lon=%.6f radius_m=%s",
@@ -117,8 +135,8 @@ def route(payload: RouteRequest) -> dict[str, object]:
             payload.end_lat,
             payload.end_lon,
         )
-        raw_segments = analyze_route_area(start, end)
-    except Exception as error:  # pragma: no cover - network dependent
+        route_result = build_graphhopper_route(start=start, end=end)
+    except GraphHopperRouteError as error:
         LOGGER.exception(
             "Route analysis failed start=(%.6f, %.6f) end=(%.6f, %.6f)",
             payload.start_lat,
@@ -126,37 +144,15 @@ def route(payload: RouteRequest) -> dict[str, object]:
             payload.end_lat,
             payload.end_lon,
         )
-        raise HTTPException(status_code=502, detail=f"route analysis failed: {error}") from error
-
-    segments = []
-    for way in raw_segments:
-        segments.extend(build_output_segments(way))
-
-    try:
-        route_result = build_route(
-            segments,
-            start=start,
-            end=end,
-        )
-    except ValueError as error:
-        LOGGER.warning(
-            "Route build failed start=(%.6f, %.6f) end=(%.6f, %.6f) reason=%s",
-            payload.start_lat,
-            payload.start_lon,
-            payload.end_lat,
-            payload.end_lon,
-            error,
-        )
-        raise HTTPException(status_code=400, detail=str(error)) from error
+        raise HTTPException(status_code=error.status_code, detail=str(error)) from error
 
     LOGGER.info(
-        "Route analysis completed start=(%.6f, %.6f) end=(%.6f, %.6f) ways=%s segments=%s routing_mode=%s total_length_m=%.1f avg_comfort=%s",
+        "Route analysis completed start=(%.6f, %.6f) end=(%.6f, %.6f) segments=%s routing_mode=%s total_length_m=%.1f avg_comfort=%s",
         payload.start_lat,
         payload.start_lon,
         payload.end_lat,
         payload.end_lon,
-        len(raw_segments),
-        len(segments),
+        len(route_result["segments"]),
         route_result["routing_mode"],
         route_result["total_length_m"],
         route_result["average_comfort"],
@@ -174,6 +170,30 @@ def route(payload: RouteRequest) -> dict[str, object]:
         "segments": route_result["segments"],
         "geometry": route_result["geometry"],
     }
+
+
+@app.post("/api/inspect")
+def inspect(payload: InspectRequest) -> dict[str, object]:
+    point = {"lat": payload.lat, "lon": payload.lon}
+
+    try:
+        LOGGER.info("Inspection started point=(%.6f, %.6f)", payload.lat, payload.lon)
+        inspection_result = build_graphhopper_inspection(point)
+    except GraphHopperRouteError as error:
+        LOGGER.exception("Inspection failed point=(%.6f, %.6f)", payload.lat, payload.lon)
+        raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+
+    LOGGER.info(
+        "Inspection completed point=(%.6f, %.6f) snapped=(%.6f, %.6f) segment=%s class=%s",
+        payload.lat,
+        payload.lon,
+        inspection_result["snapped_point"]["lat"],
+        inspection_result["snapped_point"]["lon"],
+        inspection_result["segment"]["id"],
+        inspection_result["segment"]["score"]["bike_crossable_class"],
+    )
+
+    return inspection_result
 
 
 def build_output_segments(way: dict[str, object]) -> list[dict[str, object]]:

@@ -45,3 +45,12 @@ export type RouteResponse = {
   segments: Segment[];
   geometry: Array<{ lat: number; lon: number }>;
 };
+
+export type InspectResponse = {
+  requested_point: { lat: number; lon: number };
+  snapped_point: { lat: number; lon: number };
+  segment_point: { lat: number; lon: number };
+  snap_distance_m: number;
+  segment_distance_m: number;
+  segment: Segment;
+};

@@ -21,7 +21,7 @@ LOW_STRESS_HIGHWAYS = {"living_street", "residential", "service", "unclassified"
 SHARED_PATH_HIGHWAYS = {"path", "footway", "pedestrian", "track"}
 ROUGH_SURFACES = {"ground", "gravel", "dirt", "mud", "sand"}
 RIDEABLE_PATH_SURFACES = {"asphalt", "concrete", "compacted", "fine_gravel", "paved", "paving_stones"}
-PROTECTED_CYCLEWAY_VALUES = {"track", "opposite_track"}
+PROTECTED_CYCLEWAY_VALUES = {"track", "opposite_track", "separate"}
 PAINTED_CYCLEWAY_VALUES = {"lane", "opposite_lane", "shared_lane"}
 POSITIVE_BICYCLE_VALUES = {"yes", "designated", "permissive", "destination"}
 NEGATIVE_BICYCLE_VALUES = {"no", "private"}
@@ -38,6 +38,12 @@ CLASS_LABELS = {
 def parse_maxspeed_to_kph(raw_value: Any) -> int | None:
     if raw_value is None or raw_value == "":
         return None
+
+    if isinstance(raw_value, bool):
+        return None
+
+    if isinstance(raw_value, (int, float)):
+        return round(float(raw_value))
 
     text = str(raw_value).strip().lower()
     numeric_text = text.replace("mph", "").strip()
@@ -60,18 +66,54 @@ def _clamp_score(score: int) -> int:
 def _normalize_tags(tags: dict[str, Any] | None = None) -> dict[str, Any]:
     tags = tags or {}
     return {
-        "highway": tags.get("highway", ""),
-        "bicycle": tags.get("bicycle", ""),
-        "cycleway": tags.get("cycleway", ""),
-        "cycleway_left": tags.get("cycleway:left", ""),
-        "cycleway_right": tags.get("cycleway:right", ""),
-        "sidewalk": tags.get("sidewalk", ""),
-        "footway": tags.get("footway", ""),
-        "segregated": tags.get("segregated", ""),
+        "highway": _normalize_text_value(tags.get("highway")),
+        "bicycle": _normalize_access_value(tags.get("bicycle")),
+        "cycleway": _normalize_text_value(tags.get("cycleway")),
+        "cycleway_left": _normalize_text_value(tags.get("cycleway:left")),
+        "cycleway_right": _normalize_text_value(tags.get("cycleway:right")),
+        "sidewalk": _normalize_text_value(tags.get("sidewalk")),
+        "footway": _normalize_text_value(tags.get("footway")),
+        "segregated": _normalize_text_value(tags.get("segregated")),
         "maxspeed": parse_maxspeed_to_kph(tags.get("maxspeed")),
-        "surface": tags.get("surface", ""),
+        "surface": _normalize_text_value(tags.get("surface")),
+        "bike_priority": _normalize_float_value(tags.get("cyclepass:bike_priority")),
         "name": tags.get("name") or tags.get("ref") or "Unnamed segment",
     }
+
+
+def _normalize_text_value(raw_value: Any) -> str:
+    if raw_value is None:
+        return ""
+
+    normalized = str(raw_value).strip().lower()
+    if normalized in {"", "missing"}:
+        return ""
+
+    return normalized.replace(" ", "_")
+
+
+def _normalize_access_value(raw_value: Any) -> str:
+    if raw_value is True:
+        return "yes"
+    if raw_value is False:
+        return "no"
+    return _normalize_text_value(raw_value)
+
+
+def _normalize_float_value(raw_value: Any) -> float | None:
+    if raw_value is None or raw_value == "":
+        return None
+
+    if isinstance(raw_value, bool):
+        return None
+
+    if isinstance(raw_value, (int, float)):
+        return float(raw_value)
+
+    try:
+        return float(str(raw_value).strip())
+    except ValueError:
+        return None
 
 
 def _has_positive_bicycle_access(tags: dict[str, Any]) -> bool:
@@ -105,7 +147,7 @@ def _has_painted_cycleway(tags: dict[str, Any]) -> bool:
 
 def _has_rideable_shared_path(tags: dict[str, Any]) -> bool:
     shared_path_highway = tags["highway"] in SHARED_PATH_HIGHWAYS
-    sidewalk_present = tags["sidewalk"] in {"yes", "both", "left", "right"}
+    sidewalk_present = tags["sidewalk"] in {"yes", "both", "left", "right", "separate"}
     explicitly_rideable = _has_positive_bicycle_access(tags)
     return (
         (shared_path_highway and explicitly_rideable)
@@ -162,6 +204,14 @@ def _choose_class_name(tags: dict[str, Any], comfort_score: int) -> str:
     if (
         tags["highway"] in LOW_STRESS_HIGHWAYS
         and (tags["maxspeed"] is None or tags["maxspeed"] <= SPEED_LIMIT_LOW_STRESS_KPH)
+        and not _has_negative_bicycle_access(tags)
+    ):
+        return "low-stress"
+
+    if (
+        tags["bike_priority"] is not None
+        and tags["bike_priority"] >= 0.85
+        and tags["highway"] not in HIGH_RISK_HIGHWAYS
         and not _has_negative_bicycle_access(tags)
     ):
         return "low-stress"
@@ -223,9 +273,13 @@ def classify_way(raw_tags: dict[str, Any] | None = None) -> dict[str, Any]:
             "This off-road path looks physically rideable from its highway type and surface, but bicycle access is not explicitly mapped."
         )
 
-    if tags["sidewalk"] in {"yes", "both", "left", "right"}:
+    if tags["sidewalk"] in {"yes", "both", "left", "right", "separate"}:
         score += SIDEWALK_BONUS
         reasons.append("Sidewalk presence improves fallback comfort, but it does not guarantee legal riding.")
+
+    if tags["bike_priority"] is not None and tags["bike_priority"] >= 0.85:
+        score += LOW_STRESS_SCORE_BONUS
+        reasons.append("The self-hosted router marks this segment as strongly bike-preferred.")
 
     if tags["maxspeed"] is not None and tags["maxspeed"] >= SPEED_LIMIT_HIGH_RISK_KPH and not _has_protected_cycleway(tags):
         score -= HIGH_SPEED_PENALTY

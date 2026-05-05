@@ -72,7 +72,10 @@ The repository now includes a minimal product-shaped MVP with:
 What it does:
 
 - searches a place with Nominatim through the backend
-- fetches nearby OSM roads from Overpass through the backend
+- routes through a self-hosted GraphHopper instance built from a local OSM extract
+- keeps CyclePass scoring and route explanations in the backend response
+- supports click-to-inspect nearest routed edges through GraphHopper
+- keeps radius-based manual area inspection as an optional legacy Overpass-only tool
 - scores each segment with explicit Python rules
 - renders the scored road segments on a React map UI
 - shows comfort score, allowed state, confidence, and rule trace
@@ -98,29 +101,58 @@ Free data used:
 
 - OpenStreetMap tiles
 - Nominatim geocoding
-- Overpass API road tags
+- local OpenStreetMap extracts imported into GraphHopper
+- optional Overpass API road tags for legacy inspection only
 
 ## Run Locally
 
-Backend:
+1. Create the backend environment:
 
-1. `python -m venv .venv`
-2. `.venv\\Scripts\\activate`
-3. `pip install -r backend/requirements.txt`
-4. `uvicorn backend.app.main:app --reload --port 8001`
+   - `python -m venv .venv`
+   - `.venv\\Scripts\\activate`
+   - `pip install -r backend/requirements.txt`
 
-Frontend:
+2. Download GraphHopper and the default Wielkopolskie extract:
 
-1. `cd frontend`
-2. `npm install`
-3. `npm run dev`
-4. Open `http://localhost:5173`
+   - `python scripts/setup_graphhopper.py`
+
+3. Import the routing graph once:
+
+   - `python scripts/run_graphhopper.py --command import --xms 1g --xmx 2g`
+
+4. Start GraphHopper:
+
+   - `python scripts/run_graphhopper.py --command server --xms 1g --xmx 2g`
+
+5. Start the backend API in a second terminal:
+
+   - `python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8001`
+
+6. Start the frontend in a third terminal:
+
+   - `cd frontend`
+   - `npm install`
+   - `npm run dev`
+   - Open `http://localhost:5173`
+
+Notes:
+
+- The backend expects GraphHopper at `http://127.0.0.1:8989` by default.
+- Change the router URL with `CYCLEPASS_GRAPHHOPPER_URL`.
+- The default inspection UI now uses GraphHopper, not Overpass.
+- Legacy area inspection is disabled by default so route planning does not make live Overpass requests.
+- Re-enable that legacy endpoint only if needed with `CYCLEPASS_ENABLE_OVERPASS_INSPECTION=1`.
 
 ## Validation
 
-Python rule checks:
+Python checks:
 
-- `python -m unittest backend.tests.test_scoring`
+- `python -m unittest backend.tests.test_scoring backend.tests.test_routing backend.tests.test_graphhopper backend.tests.test_osm_route_area`
+- `python -m compileall backend/app backend/tests scripts`
+
+Frontend build:
+
+- `cd frontend && npm run build`
 
 Sample local script:
 
