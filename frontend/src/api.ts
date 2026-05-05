@@ -1,4 +1,4 @@
-import type { AnalyzeResponse, InspectResponse, RouteResponse, SearchResult } from "./types";
+import type { AnalyzeResponse, InspectResponse, MapillaryResponse, RouteResponse, SearchResult } from "./types";
 
 const DEFAULT_API_BASE_URL = "";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL;
@@ -85,4 +85,23 @@ export async function inspectRoad(lat: number, lon: number): Promise<InspectResp
   }
 
   return response.json() as Promise<InspectResponse>;
+}
+
+export async function findNearestMapillaryImage(lat: number, lon: number): Promise<MapillaryResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/mapillary`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      lat,
+      lon,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `Mapillary lookup failed with ${response.status}`));
+  }
+
+  return response.json() as Promise<MapillaryResponse>;
 }

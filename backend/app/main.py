@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .graphhopper import GraphHopperRouteError, build_graphhopper_inspection, build_graphhopper_route
+from .mapillary import MapillaryLookupError, find_nearest_mapillary_image
 from .osm import analyze_area, search_location
 from .scoring import classify_way, summarize_segments
 
@@ -53,6 +54,11 @@ class RouteRequest(BaseModel):
 
 
 class InspectRequest(BaseModel):
+    lat: float
+    lon: float
+
+
+class MapillaryRequest(BaseModel):
     lat: float
     lon: float
 
@@ -194,6 +200,30 @@ def inspect(payload: InspectRequest) -> dict[str, object]:
     )
 
     return inspection_result
+
+
+@app.post("/api/mapillary")
+def mapillary_lookup(payload: MapillaryRequest) -> dict[str, object]:
+    point = {"lat": payload.lat, "lon": payload.lon}
+
+    try:
+        LOGGER.info("Mapillary lookup started point=(%.6f, %.6f)", payload.lat, payload.lon)
+        result = find_nearest_mapillary_image(point)
+    except MapillaryLookupError as error:
+        LOGGER.exception("Mapillary lookup failed point=(%.6f, %.6f)", payload.lat, payload.lon)
+        raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+
+    LOGGER.info(
+        "Mapillary lookup completed point=(%.6f, %.6f) image_id=%s distance_m=%.1f",
+        payload.lat,
+        payload.lon,
+        result["image_id"],
+        result["distance_m"],
+    )
+    return {
+        "requested_point": point,
+        **result,
+    }
 
 
 def build_output_segments(way: dict[str, object]) -> list[dict[str, object]]:

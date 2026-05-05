@@ -54,3 +54,13 @@ export type InspectResponse = {
   segment_distance_m: number;
   segment: Segment;
 };
+
+export type MapillaryResponse = {
+  requested_point: { lat: number; lon: number };
+  image_id: string;
+  captured_at?: string | null;
+  thumb_1024_url?: string | null;
+  viewer_url: string;
+  distance_m: number;
+  location: { lat: number; lon: number };
+};

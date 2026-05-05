@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-import { findRoute, inspectRoad, searchLocation } from "./api";
-import type { InspectResponse, RouteResponse, Segment, SegmentClass } from "./types";
+import { findNearestMapillaryImage, findRoute, inspectRoad, searchLocation } from "./api";
+import type { InspectResponse, MapillaryResponse, RouteResponse, Segment, SegmentClass } from "./types";
 
 const DEFAULT_CENTER = { lat: 51.9721, lon: 17.5012 };
 const DEFAULT_ZOOM = 15;
@@ -39,6 +39,9 @@ const BASE_MAP_DESCRIPTIONS: Record<BaseMapKey, string> = {
   satellite: "Imagery for road detail",
 };
 const BASE_MAP_OPTIONS: BaseMapKey[] = ["street", "satellite"];
+const MAPILLARY_DATE_FORMAT = new Intl.DateTimeFormat("en", {
+  dateStyle: "medium",
+});
 
 function App() {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
@@ -56,12 +59,14 @@ function App() {
   const [status, setStatus] = useState("Set a route start and end, then find a bike-safe route.");
   const [isPending, setIsPending] = useState(false);
   const [inspection, setInspection] = useState<InspectResponse | null>(null);
+  const [mapillaryImage, setMapillaryImage] = useState<MapillaryResponse | null>(null);
   const [selectedSegment, setSelectedSegment] = useState<Segment | null>(null);
   const [route, setRoute] = useState<RouteResponse | null>(null);
   const [routeStart, setRouteStart] = useState<{ lat: number; lon: number } | null>(null);
   const [routeEnd, setRouteEnd] = useState<{ lat: number; lon: number } | null>(null);
   const [pickMode, setPickMode] = useState<"start" | "end" | "inspect" | null>(null);
   const [baseMap, setBaseMap] = useState<BaseMapKey>(DEFAULT_BASE_MAP);
+  const [isMapillaryPending, setIsMapillaryPending] = useState(false);
 
   useEffect(() => {
     pickModeRef.current = pickMode;
@@ -320,6 +325,7 @@ function App() {
 
   async function inspectRoadAt(point: { lat: number; lon: number }) {
     setIsPending(true);
+    setMapillaryImage(null);
     setStatus("Inspecting the nearest routed edge...");
 
     try {
@@ -333,6 +339,27 @@ function App() {
       setStatus(error instanceof Error ? error.message : "Inspection failed.");
     } finally {
       setIsPending(false);
+    }
+  }
+
+  async function handleOpenMapillary() {
+    if (!inspection) {
+      setStatus("Inspect a road point first, then open nearby Mapillary imagery.");
+      return;
+    }
+
+    setIsMapillaryPending(true);
+    setStatus("Looking for nearby Mapillary imagery...");
+
+    try {
+      const response = await findNearestMapillaryImage(inspection.snapped_point.lat, inspection.snapped_point.lon);
+      setMapillaryImage(response);
+      window.open(response.viewer_url, "_blank", "noopener,noreferrer");
+      setStatus(`Opened Mapillary imagery ${Math.round(response.distance_m)} m from the inspected road point.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Mapillary lookup failed.");
+    } finally {
+      setIsMapillaryPending(false);
     }
   }
 
@@ -494,6 +521,7 @@ function App() {
               disabled={isPending && !inspection}
               onClick={() => {
                 setInspection(null);
+                setMapillaryImage(null);
                 inspectLayerRef.current?.clearLayers();
                 setSelectedSegment(route?.segments[0] ?? null);
                 setStatus("Inspection overlay cleared.");
@@ -502,6 +530,23 @@ function App() {
               Clear inspection
             </button>
           </div>
+          <button
+            type="button"
+            disabled={!inspection || isPending || isMapillaryPending}
+            onClick={() => {
+              void handleOpenMapillary();
+            }}
+          >
+            {isMapillaryPending ? "Opening Mapillary..." : "Open nearest Mapillary"}
+          </button>
+          {mapillaryImage ? (
+            <p className="detail-note">
+              Nearest imagery is about {Math.round(mapillaryImage.distance_m)} m away
+              {mapillaryImage.captured_at ? `, captured ${formatMapillaryDate(mapillaryImage.captured_at)}` : ""}.
+            </p>
+          ) : (
+            <p className="detail-note">Inspect a road point, then open the nearest available Mapillary image.</p>
+          )}
         </section>
 
         <section className="panel">
@@ -687,6 +732,15 @@ function formatPoint(point: { lat: number; lon: number } | null): string {
   }
 
   return `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`;
+}
+
+function formatMapillaryDate(rawValue: string): string {
+  const parsedDate = new Date(rawValue);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return rawValue;
+  }
+
+  return MAPILLARY_DATE_FORMAT.format(parsedDate);
 }
 
 function buildRoutePinIcon(label: string, color: string): L.DivIcon {

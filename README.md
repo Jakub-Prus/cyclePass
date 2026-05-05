@@ -76,6 +76,7 @@ What it does:
 - keeps CyclePass scoring and route explanations in the backend response
 - supports click-to-inspect nearest routed edges through GraphHopper
 - lets the user switch the map between street and satellite imagery for road inspection
+- can open nearby Mapillary street imagery for an inspected road point when a Mapillary access token is configured
 - keeps radius-based manual area inspection as an optional legacy Overpass-only tool
 - scores each segment with explicit Python rules
 - renders the scored road segments on a React map UI
@@ -140,6 +141,7 @@ Notes:
 
 - The backend expects GraphHopper at `http://127.0.0.1:8989` by default.
 - Change the router URL with `CYCLEPASS_GRAPHHOPPER_URL`.
+- To enable Mapillary lookup from the inspection panel, set `CYCLEPASS_MAPILLARY_ACCESS_TOKEN`.
 - The default inspection UI now uses GraphHopper, not Overpass.
 - Legacy area inspection is disabled by default so route planning does not make live Overpass requests.
 - Re-enable that legacy endpoint only if needed with `CYCLEPASS_ENABLE_OVERPASS_INSPECTION=1`.
