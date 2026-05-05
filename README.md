@@ -75,6 +75,7 @@ What it does:
 - routes through a self-hosted GraphHopper instance built from a local OSM extract
 - keeps CyclePass scoring and route explanations in the backend response
 - supports click-to-inspect nearest routed edges through GraphHopper
+- lets the user switch the map between street and satellite imagery for road inspection
 - keeps radius-based manual area inspection as an optional legacy Overpass-only tool
 - scores each segment with explicit Python rules
 - renders the scored road segments on a React map UI

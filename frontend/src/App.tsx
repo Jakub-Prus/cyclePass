@@ -7,6 +7,14 @@ import type { InspectResponse, RouteResponse, Segment, SegmentClass } from "./ty
 
 const DEFAULT_CENTER = { lat: 51.9721, lon: 17.5012 };
 const DEFAULT_ZOOM = 15;
+const BASE_LAYER_MAX_ZOOM = 19;
+const OPEN_STREET_MAP_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const OPEN_STREET_MAP_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const ESRI_SATELLITE_URL =
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const ESRI_SATELLITE_ATTRIBUTION =
+  "Tiles &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community";
 
 const CLASS_COLORS: Record<SegmentClass, string> = {
   protected: "#0b8f55",
@@ -16,6 +24,10 @@ const CLASS_COLORS: Record<SegmentClass, string> = {
 };
 const START_MARKER_COLOR = "#0b8f55";
 const END_MARKER_COLOR = "#c13f30";
+const BASE_MAP_LABELS = {
+  street: "Street",
+  satellite: "Satellite",
+} as const;
 
 function App() {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
@@ -64,10 +76,25 @@ function App() {
       zoomControl: true,
     }).setView([DEFAULT_CENTER.lat, DEFAULT_CENTER.lon], DEFAULT_ZOOM);
 
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    const streetLayer = L.tileLayer(OPEN_STREET_MAP_URL, {
+      maxZoom: BASE_LAYER_MAX_ZOOM,
+      attribution: OPEN_STREET_MAP_ATTRIBUTION,
     }).addTo(map);
+    const satelliteLayer = L.tileLayer(ESRI_SATELLITE_URL, {
+      maxZoom: BASE_LAYER_MAX_ZOOM,
+      attribution: ESRI_SATELLITE_ATTRIBUTION,
+    });
+
+    L.control
+      .layers(
+        {
+          [BASE_MAP_LABELS.street]: streetLayer,
+          [BASE_MAP_LABELS.satellite]: satelliteLayer,
+        },
+        undefined,
+        { position: "topright" }
+      )
+      .addTo(map);
 
     const routeLayer = L.layerGroup().addTo(map);
     const pickerLayer = L.layerGroup().addTo(map);
