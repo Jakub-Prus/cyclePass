@@ -113,3 +113,14 @@ The exact penalty values should live in named constants and remain explicit in o
 - scoring API
 - map QA dashboard
 - routing-engine integration
+
+## Target Production Stack
+
+The MVP currently uses live OSM queries to keep the prototype simple, but the clean production architecture should separate concerns more explicitly:
+
+- geocoding: keep Nominatim initially, with a later option to self-host if request volume or reliability requires it
+- routing: self-host GraphHopper or Valhalla as the route engine instead of constructing route graphs directly from public Overpass queries at request time
+- safety model: keep the CyclePass rules and comfort scoring as the project-owned weighting and explanation layer
+- UI overlays: back map inspection with optional local cached OSM data rather than relying on live Overpass fetches for every inspection request
+
+This design keeps routing free of per-request commercial API costs while removing public Overpass rate limits from the primary route workflow.

@@ -46,8 +46,7 @@ export async function analyzeArea(lat: number, lon: number, radiusM: number): Pr
 
 export async function findRoute(
   start: { lat: number; lon: number },
-  end: { lat: number; lon: number },
-  radiusM: number
+  end: { lat: number; lon: number }
 ): Promise<RouteResponse> {
   const response = await fetch(`${API_BASE_URL}/api/route`, {
     method: "POST",
@@ -59,7 +58,7 @@ export async function findRoute(
       start_lon: start.lon,
       end_lat: end.lat,
       end_lon: end.lon,
-      radius_m: radiusM,
+      radius_m: 600,
     }),
   });
 

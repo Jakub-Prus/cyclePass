@@ -97,3 +97,14 @@ Start with a hybrid rule-based + ML MVP:
 - explainable outputs
 - routing layer that treats hostile roads as banned or heavily penalized
 - country-specific rules added later
+
+## Target Stack Direction
+
+The clean long-term architecture for CyclePass should be:
+
+- geocoding: keep Nominatim for now or self-host later
+- routing: self-host GraphHopper or Valhalla
+- safety model: keep CyclePass scoring rules and comfort logic as the project-owned model layer
+- UI overlays: use optional local cached OSM data instead of live Overpass for recurring inspection overlays
+
+That split reduces dependence on public OSM query infrastructure while preserving full control over the cyclist-safety logic that differentiates the product.

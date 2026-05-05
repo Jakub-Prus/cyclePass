@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import urllib.error
 import urllib.parse
@@ -40,6 +41,7 @@ REQUEST_HEADERS = {
     "Accept": "application/json",
     "User-Agent": "CyclePassMvp/0.1 (+https://github.com/Jakub-Prus/cyclePass)",
 }
+LOGGER = logging.getLogger("cyclepass.osm")
 
 
 def search_location(query: str) -> list[dict[str, Any]]:
@@ -51,8 +53,16 @@ def search_location(query: str) -> list[dict[str, Any]]:
         }
     )
     request = urllib.request.Request(f"{NOMINATIM_URL}?{params}", headers=REQUEST_HEADERS)
-    with urllib.request.urlopen(request, timeout=OVERPASS_TIMEOUT_SECONDS) as response:
-        data = json.loads(response.read().decode("utf-8"))
+    LOGGER.info("Calling Nominatim query=%r", query)
+    try:
+        with urllib.request.urlopen(request, timeout=OVERPASS_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        log_http_error("Nominatim search failed", error, {"query": query, "url": request.full_url})
+        raise
+    except urllib.error.URLError as error:
+        LOGGER.exception("Nominatim network error query=%r reason=%s", query, error.reason)
+        raise
 
     return [
         {
@@ -70,6 +80,7 @@ def analyze_area(lat: float, lon: float, radius_m: int) -> list[dict[str, Any]]:
 way(around:{radius_m},{lat},{lon})["highway"~"{ROAD_FILTER}"];
 out tags geom;
 """
+    LOGGER.info("Fetching area ways lat=%.6f lon=%.6f radius_m=%s", lat, lon, radius_m)
     return split_ways_into_subsegments(fetch_overpass_ways(query)[:WAY_FETCH_LIMIT])
 
 
@@ -77,6 +88,15 @@ def analyze_route_area(start: dict[str, float], end: dict[str, float]) -> list[d
     bbox = build_route_bbox(start, end, ROUTE_CORRIDOR_PADDING_M)
     tile_bboxes = split_bbox_into_tiles(bbox, ROUTE_TILE_TARGET_SIZE_M)
     way_by_id: dict[int, dict[str, Any]] = {}
+    LOGGER.info(
+        "Fetching route corridor start=(%.6f, %.6f) end=(%.6f, %.6f) tiles=%s bbox=%s",
+        start["lat"],
+        start["lon"],
+        end["lat"],
+        end["lon"],
+        len(tile_bboxes),
+        bbox,
+    )
 
     for tile_bbox in tile_bboxes:
         query = f"""
@@ -85,11 +105,13 @@ way["highway"~"{ROAD_FILTER}"]({tile_bbox['south']},{tile_bbox['west']},{tile_bb
 out tags geom;
 """
         try:
+            LOGGER.info("Fetching route tile bbox=%s", tile_bbox)
             tile_ways = fetch_overpass_ways(query)
         except urllib.error.HTTPError as error:
             if error.code != 504 or len(tile_bboxes) == 1:
                 raise
 
+            LOGGER.warning("Route tile timed out; retrying as half-tiles bbox=%s", tile_bbox)
             for way in fetch_tile_halves(tile_bbox):
                 way_by_id[way["id"]] = way
             continue
@@ -104,6 +126,7 @@ out tags geom;
 def fetch_tile_halves(tile_bbox: dict[str, float]) -> list[dict[str, Any]]:
     half_tiles = split_bbox_into_tiles(tile_bbox, ROUTE_TILE_TARGET_SIZE_M / 2)
     way_by_id: dict[int, dict[str, Any]] = {}
+    LOGGER.info("Fetching route half-tiles parent_bbox=%s half_tile_count=%s", tile_bbox, len(half_tiles))
 
     for half_tile in half_tiles:
         query = f"""
@@ -111,6 +134,7 @@ def fetch_tile_halves(tile_bbox: dict[str, float]) -> list[dict[str, Any]]:
 way["highway"~"{ROAD_FILTER}"]({half_tile['south']},{half_tile['west']},{half_tile['north']},{half_tile['east']});
 out tags geom;
 """
+        LOGGER.info("Fetching route half-tile bbox=%s", half_tile)
         for way in fetch_overpass_ways(query):
             way_by_id[way["id"]] = way
 
@@ -128,14 +152,55 @@ def fetch_overpass_ways(query: str) -> list[dict[str, Any]]:
         method="POST",
     )
 
-    with urllib.request.urlopen(request, timeout=OVERPASS_TIMEOUT_SECONDS) as response:
-        data = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=OVERPASS_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        log_http_error(
+            "Overpass query failed",
+            error,
+            {
+                "url": OVERPASS_URL,
+                "query_preview": compact_query_preview(query),
+            },
+        )
+        raise
+    except urllib.error.URLError as error:
+        LOGGER.exception("Overpass network error reason=%s query=%s", error.reason, compact_query_preview(query))
+        raise
 
     return [
         element
         for element in data.get("elements", [])
         if element.get("type") == "way" and isinstance(element.get("geometry"), list)
     ]
+
+
+def log_http_error(message: str, error: urllib.error.HTTPError, context: dict[str, Any]) -> None:
+    retry_after = error.headers.get("Retry-After")
+    response_body = read_error_body(error)
+    LOGGER.error(
+        "%s status=%s reason=%s retry_after=%r context=%s body=%r",
+        message,
+        error.code,
+        error.reason,
+        retry_after,
+        context,
+        response_body,
+    )
+
+
+def read_error_body(error: urllib.error.HTTPError) -> str:
+    try:
+        body = error.read().decode("utf-8", errors="replace").strip()
+    except Exception:
+        return ""
+
+    return body[:500]
+
+
+def compact_query_preview(query: str) -> str:
+    return " ".join(query.split())[:220]
 
 
 def split_ways_into_subsegments(ways: list[dict[str, Any]]) -> list[dict[str, Any]]:

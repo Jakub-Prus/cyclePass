@@ -288,8 +288,57 @@ button:disabled {
   overflow: hidden;
 }
 
+#map.map-picking {
+  cursor: crosshair;
+}
+
+#map.map-picking .leaflet-interactive,
+#map.map-picking .leaflet-tile-container,
+#map.map-picking .leaflet-marker-icon,
+#map.map-picking .leaflet-marker-shadow {
+  cursor: crosshair;
+}
+
 .leaflet-popup-content-wrapper {
   border-radius: 14px;
+}
+
+.route-pin-wrapper {
+  background: transparent;
+  border: 0;
+}
+
+.route-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px 999px 999px 4px;
+  background: var(--pin-color);
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 800;
+  box-shadow: 0 8px 18px rgba(30, 35, 48, 0.22);
+  transform: rotate(-45deg);
+}
+
+.route-pin::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.26);
+  transform: translateY(-6px);
+}
+
+.route-pin {
+  position: relative;
+}
+
+.route-pin-label {
+  transform: rotate(45deg);
 }
 
 @media (max-width: 980px) {

@@ -83,6 +83,17 @@ Near-term product extension:
 - compute a route that avoids hostile roads such as highways and high-speed arterials without protection
 - prefer protected, low-stress, or otherwise comfortable links even when they are not the raw shortest path in meters
 
+## Target Production Architecture
+
+For the longer-term clean architecture, CyclePass should separate geocoding, routing, scoring, and map overlays into distinct responsibilities:
+
+- geocoding: keep Nominatim for now, with the option to self-host later
+- routing: self-host GraphHopper or Valhalla instead of building request-time routes from public Overpass queries
+- safety model: keep CyclePass scoring and comfort rules as the project-owned routing preference layer
+- UI overlays: use optional local cached OSM data instead of depending on live Overpass responses for the map inspection path
+
+This architecture keeps the product free of third-party routing fees while avoiding public Overpass rate limits in the core route-planning flow.
+
 Free data used:
 
 - OpenStreetMap tiles

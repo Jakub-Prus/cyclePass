@@ -6,7 +6,7 @@ import { analyzeArea, findRoute, searchLocation } from "./api";
 import type { AnalyzeResponse, RouteResponse, Segment, SegmentClass } from "./types";
 
 const DEFAULT_CENTER = { lat: 51.9721, lon: 17.5012 };
-const DEFAULT_RADIUS_M = 350;
+const DEFAULT_INSPECTION_RADIUS_M = 350;
 const DEFAULT_ZOOM = 15;
 const SUMMARY_KEYS: Array<{ key: SegmentClass | "total"; label: string }> = [
   { key: "total", label: "Segments" },
@@ -22,6 +22,8 @@ const CLASS_COLORS: Record<SegmentClass, string> = {
   shared: "#d08b12",
   "not-suitable": "#c13f30",
 };
+const START_MARKER_COLOR = "#0b8f55";
+const END_MARKER_COLOR = "#c13f30";
 
 function App() {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
@@ -33,7 +35,7 @@ function App() {
 
   const [startQuery, setStartQuery] = useState("");
   const [endQuery, setEndQuery] = useState("");
-  const [radiusM, setRadiusM] = useState(DEFAULT_RADIUS_M);
+  const [inspectionRadiusM, setInspectionRadiusM] = useState(DEFAULT_INSPECTION_RADIUS_M);
   const [center, setCenter] = useState(DEFAULT_CENTER);
   const [status, setStatus] = useState("Set a route start and end, then find a bike-safe route.");
   const [isPending, setIsPending] = useState(false);
@@ -46,6 +48,21 @@ function App() {
 
   useEffect(() => {
     pickModeRef.current = pickMode;
+  }, [pickMode]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) {
+      return;
+    }
+
+    const container = map.getContainer();
+    if (pickMode) {
+      container.classList.add("map-picking");
+      return;
+    }
+
+    container.classList.remove("map-picking");
   }, [pickMode]);
 
   useEffect(() => {
@@ -114,6 +131,7 @@ function App() {
       const startMarker = L.marker([routeStart.lat, routeStart.lon], {
         draggable: true,
         title: "Route start",
+        icon: buildRoutePinIcon("A", START_MARKER_COLOR),
       });
 
       startMarker.on("dragend", (event: L.DragEndEvent) => {
@@ -134,6 +152,7 @@ function App() {
       const endMarker = L.marker([routeEnd.lat, routeEnd.lon], {
         draggable: true,
         title: "Route end",
+        icon: buildRoutePinIcon("B", END_MARKER_COLOR),
       });
 
       endMarker.on("dragend", (event: L.DragEndEvent) => {
@@ -293,7 +312,7 @@ function App() {
       }
 
       setStatus("Finding a bike-safe route...");
-      const response = await findRoute(nextRouteStart, nextRouteEnd, Math.max(radiusM, 600));
+      const response = await findRoute(nextRouteStart, nextRouteEnd);
       setRoute(response);
       setSelectedSegment(response.segments[0] ?? null);
       setCenter(response.snapped_start);
@@ -388,19 +407,6 @@ function App() {
             </button>
           </div>
 
-          <label className="field">
-            <span>Routing fetch radius</span>
-            <input
-              type="range"
-              min="150"
-              max="900"
-              step="50"
-              value={radiusM}
-              onChange={(event) => setRadiusM(Number(event.target.value))}
-            />
-            <strong>{radiusM} m</strong>
-          </label>
-
           <p className="status">{status}</p>
         </form>
 
@@ -409,15 +415,42 @@ function App() {
           <p className="detail-note">
             Segment analysis is secondary now. Use it only when you want to inspect the current map center manually.
           </p>
-          <button
-            type="button"
-            disabled={isPending}
-            onClick={() => {
-              void loadAnalysis(center.lat, center.lon, radiusM);
-            }}
-          >
-            Analyze current map center
-          </button>
+          <div className="button-row">
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={() => {
+                void loadAnalysis(center.lat, center.lon, inspectionRadiusM);
+              }}
+            >
+              Analyze current map center
+            </button>
+            <button
+              type="button"
+              disabled={isPending && !analysis}
+              onClick={() => {
+                setAnalysis(null);
+                segmentLayerRef.current?.clearLayers();
+                setSelectedSegment(route?.segments[0] ?? null);
+                setStatus("Area inspection roads cleared.");
+              }}
+            >
+              Clear roads
+            </button>
+          </div>
+
+          <label className="field">
+            <span>Inspection radius</span>
+            <input
+              type="range"
+              min="150"
+              max="900"
+              step="50"
+              value={inspectionRadiusM}
+              onChange={(event) => setInspectionRadiusM(Number(event.target.value))}
+            />
+            <strong>{inspectionRadiusM} m</strong>
+          </label>
         </section>
 
         <section className="panel">
@@ -587,6 +620,15 @@ function formatPoint(point: { lat: number; lon: number } | null): string {
   }
 
   return `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`;
+}
+
+function buildRoutePinIcon(label: string, color: string): L.DivIcon {
+  return L.divIcon({
+    className: "route-pin-wrapper",
+    html: `<span class="route-pin" style="--pin-color: ${color};"><span class="route-pin-label">${label}</span></span>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 28],
+  });
 }
 
 export default App;
