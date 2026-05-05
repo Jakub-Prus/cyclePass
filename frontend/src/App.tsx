@@ -15,6 +15,9 @@ const ESRI_SATELLITE_URL =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const ESRI_SATELLITE_ATTRIBUTION =
   "Tiles &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community";
+const ESRI_LABELS_URL =
+  "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
+const ESRI_LABELS_ATTRIBUTION = "Labels &copy; Esri";
 
 const CLASS_COLORS: Record<SegmentClass, string> = {
   protected: "#0b8f55",
@@ -24,14 +27,25 @@ const CLASS_COLORS: Record<SegmentClass, string> = {
 };
 const START_MARKER_COLOR = "#0b8f55";
 const END_MARKER_COLOR = "#c13f30";
-const BASE_MAP_LABELS = {
-  street: "Street",
+type BaseMapKey = "street" | "satellite";
+
+const DEFAULT_BASE_MAP: BaseMapKey = "street";
+const BASE_MAP_LABELS: Record<BaseMapKey, string> = {
+  street: "Map",
   satellite: "Satellite",
-} as const;
+};
+const BASE_MAP_DESCRIPTIONS: Record<BaseMapKey, string> = {
+  street: "Roads and labels",
+  satellite: "Imagery for road detail",
+};
+const BASE_MAP_OPTIONS: BaseMapKey[] = ["street", "satellite"];
 
 function App() {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const streetLayerRef = useRef<L.TileLayer | null>(null);
+  const satelliteLayerRef = useRef<L.TileLayer | null>(null);
+  const satelliteLabelsLayerRef = useRef<L.TileLayer | null>(null);
   const routeLayerRef = useRef<L.LayerGroup | null>(null);
   const pickerLayerRef = useRef<L.LayerGroup | null>(null);
   const inspectLayerRef = useRef<L.LayerGroup | null>(null);
@@ -47,6 +61,7 @@ function App() {
   const [routeStart, setRouteStart] = useState<{ lat: number; lon: number } | null>(null);
   const [routeEnd, setRouteEnd] = useState<{ lat: number; lon: number } | null>(null);
   const [pickMode, setPickMode] = useState<"start" | "end" | "inspect" | null>(null);
+  const [baseMap, setBaseMap] = useState<BaseMapKey>(DEFAULT_BASE_MAP);
 
   useEffect(() => {
     pickModeRef.current = pickMode;
@@ -84,17 +99,11 @@ function App() {
       maxZoom: BASE_LAYER_MAX_ZOOM,
       attribution: ESRI_SATELLITE_ATTRIBUTION,
     });
-
-    L.control
-      .layers(
-        {
-          [BASE_MAP_LABELS.street]: streetLayer,
-          [BASE_MAP_LABELS.satellite]: satelliteLayer,
-        },
-        undefined,
-        { position: "topright" }
-      )
-      .addTo(map);
+    const satelliteLabelsLayer = L.tileLayer(ESRI_LABELS_URL, {
+      maxZoom: BASE_LAYER_MAX_ZOOM,
+      attribution: ESRI_LABELS_ATTRIBUTION,
+      pane: "overlayPane",
+    });
 
     const routeLayer = L.layerGroup().addTo(map);
     const pickerLayer = L.layerGroup().addTo(map);
@@ -133,10 +142,46 @@ function App() {
     });
 
     mapInstanceRef.current = map;
+    streetLayerRef.current = streetLayer;
+    satelliteLayerRef.current = satelliteLayer;
+    satelliteLabelsLayerRef.current = satelliteLabelsLayer;
     routeLayerRef.current = routeLayer;
     pickerLayerRef.current = pickerLayer;
     inspectLayerRef.current = inspectLayer;
   }, []);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const streetLayer = streetLayerRef.current;
+    const satelliteLayer = satelliteLayerRef.current;
+    const satelliteLabelsLayer = satelliteLabelsLayerRef.current;
+    if (!map || !streetLayer || !satelliteLayer || !satelliteLabelsLayer) {
+      return;
+    }
+
+    const activeLayer = baseMap === "street" ? streetLayer : satelliteLayer;
+    const inactiveLayer = baseMap === "street" ? satelliteLayer : streetLayer;
+    const shouldShowSatelliteLabels = baseMap === "satellite";
+
+    if (map.hasLayer(inactiveLayer)) {
+      map.removeLayer(inactiveLayer);
+    }
+
+    if (!map.hasLayer(activeLayer)) {
+      activeLayer.addTo(map);
+    }
+
+    if (shouldShowSatelliteLabels) {
+      if (!map.hasLayer(satelliteLabelsLayer)) {
+        satelliteLabelsLayer.addTo(map);
+      }
+      return;
+    }
+
+    if (map.hasLayer(satelliteLabelsLayer)) {
+      map.removeLayer(satelliteLabelsLayer);
+    }
+  }, [baseMap]);
 
   useEffect(() => {
     if (!pickerLayerRef.current) {
@@ -502,6 +547,36 @@ function App() {
       </aside>
 
       <main className="map-shell">
+        <div className="map-layer-switcher" aria-label="Base map switcher">
+          <div className="map-layer-switcher-summary" tabIndex={0}>
+            <span className={`map-layer-switcher-icon map-layer-preview-${baseMap}`} aria-hidden="true" />
+            <span className="map-layer-switcher-copy">
+              <span className="map-layer-switcher-title">Layers</span>
+              <span className="map-layer-switcher-active">{BASE_MAP_LABELS[baseMap]}</span>
+            </span>
+          </div>
+
+          <div className="map-layer-switcher-menu" role="group" aria-label="Choose base map">
+            {BASE_MAP_OPTIONS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={`map-layer-card${baseMap === option ? " is-active" : ""}`}
+                aria-pressed={baseMap === option}
+                onClick={() => {
+                  setBaseMap(option);
+                }}
+              >
+                <span className={`map-layer-card-preview map-layer-preview-${option}`} aria-hidden="true" />
+                <span className="map-layer-card-copy">
+                  <span className="map-layer-card-title">{BASE_MAP_LABELS[option]}</span>
+                  <span className="map-layer-card-subtitle">{BASE_MAP_DESCRIPTIONS[option]}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div ref={mapElementRef} id="map" aria-label="Map with scored road segments" />
       </main>
 
