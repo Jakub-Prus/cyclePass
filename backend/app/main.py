@@ -44,7 +44,6 @@ class RouteRequest(BaseModel):
     start_lon: float
     end_lat: float
     end_lon: float
-    radius_m: int = Field(ge=300, le=3000)
 
 
 @app.get("/api/health")
@@ -169,7 +168,6 @@ def route(payload: RouteRequest) -> dict[str, object]:
         "snapped_start": route_result["snapped_start"],
         "snapped_end": route_result["snapped_end"],
         "routing_mode": route_result["routing_mode"],
-        "radius_m": payload.radius_m,
         "total_length_m": route_result["total_length_m"],
         "average_comfort": route_result["average_comfort"],
         "explanation": route_result["explanation"],

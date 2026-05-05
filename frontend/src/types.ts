@@ -38,7 +38,6 @@ export type RouteResponse = {
   end: { lat: number; lon: number };
   snapped_start: { lat: number; lon: number };
   snapped_end: { lat: number; lon: number };
-  radius_m: number;
   total_length_m: number;
   average_comfort: number;
   routing_mode: "strict" | "fallback";

@@ -58,7 +58,6 @@ export async function findRoute(
       start_lon: start.lon,
       end_lat: end.lat,
       end_lon: end.lon,
-      radius_m: 600,
     }),
   });
 
