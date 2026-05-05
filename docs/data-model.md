@@ -28,6 +28,9 @@ satellite_tile_ids
 osm_snapshot_timestamp
 last_inference_timestamp
 traffic_proxy
+routing_cost
+from_node_id
+to_node_id
 ```
 
 ## Model Inputs
@@ -94,6 +97,38 @@ Suggested dimensions:
 - surface: OSM plus visual cues
 - continuity: whether favorable conditions continue across adjacent segments
 - intersection_safety: crossing complexity and barriers
+
+## Route Entity
+
+Suggested primary record for a route result:
+
+```md
+route_id
+origin
+destination
+route_geometry
+segment_ids
+total_length_m
+total_routing_cost
+average_comfort_score
+minimum_comfort_score
+comfort_class_mix
+avoided_segment_ids
+explanation
+route_policy_version
+generated_at
+```
+
+## Routing Policy
+
+The route planner should not optimize raw distance alone.
+
+Suggested MVP policy:
+
+- hard-exclude segments with `legally_rideable = no`
+- hard-exclude highway-like roads unless protected bike infrastructure is explicitly present
+- assign a cyclist-weighted edge cost based on segment length and comfort
+- keep the cost policy versioned so route behavior changes remain auditable
 
 ## Explainability Fields
 

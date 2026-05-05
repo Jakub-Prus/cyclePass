@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-import { analyzeArea, searchLocation } from "./api";
-import type { AnalyzeResponse, Segment, SegmentClass } from "./types";
+import { analyzeArea, findRoute, searchLocation } from "./api";
+import type { AnalyzeResponse, RouteResponse, Segment, SegmentClass } from "./types";
 
-const DEFAULT_CENTER = { lat: 52.2297, lon: 21.0122 };
+const DEFAULT_CENTER = { lat: 51.9721, lon: 17.5012 };
 const DEFAULT_RADIUS_M = 350;
 const DEFAULT_ZOOM = 15;
 const SUMMARY_KEYS: Array<{ key: SegmentClass | "total"; label: string }> = [
@@ -27,14 +27,26 @@ function App() {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const segmentLayerRef = useRef<L.LayerGroup | null>(null);
+  const routeLayerRef = useRef<L.LayerGroup | null>(null);
+  const pickerLayerRef = useRef<L.LayerGroup | null>(null);
+  const pickModeRef = useRef<"start" | "end" | null>(null);
 
-  const [query, setQuery] = useState("Warsaw, Poland");
+  const [startQuery, setStartQuery] = useState("");
+  const [endQuery, setEndQuery] = useState("");
   const [radiusM, setRadiusM] = useState(DEFAULT_RADIUS_M);
   const [center, setCenter] = useState(DEFAULT_CENTER);
-  const [status, setStatus] = useState("Searching nearby OSM roads...");
+  const [status, setStatus] = useState("Set a route start and end, then find a bike-safe route.");
   const [isPending, setIsPending] = useState(false);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
   const [selectedSegment, setSelectedSegment] = useState<Segment | null>(null);
+  const [route, setRoute] = useState<RouteResponse | null>(null);
+  const [routeStart, setRouteStart] = useState<{ lat: number; lon: number } | null>(null);
+  const [routeEnd, setRouteEnd] = useState<{ lat: number; lon: number } | null>(null);
+  const [pickMode, setPickMode] = useState<"start" | "end" | null>(null);
+
+  useEffect(() => {
+    pickModeRef.current = pickMode;
+  }, [pickMode]);
 
   useEffect(() => {
     if (!mapElementRef.current || mapInstanceRef.current) {
@@ -51,19 +63,93 @@ function App() {
     }).addTo(map);
 
     const segmentLayer = L.layerGroup().addTo(map);
+    const routeLayer = L.layerGroup().addTo(map);
+    const pickerLayer = L.layerGroup().addTo(map);
 
     map.on("moveend", () => {
       const mapCenter = map.getCenter();
       setCenter({ lat: mapCenter.lat, lon: mapCenter.lng });
     });
 
+    map.on("click", (event: L.LeafletMouseEvent) => {
+      const activePickMode = pickModeRef.current;
+      if (!activePickMode) {
+        return;
+      }
+
+      const nextPoint = {
+        lat: event.latlng.lat,
+        lon: event.latlng.lng,
+      };
+      setRoute(null);
+      const formattedPoint = formatPoint(nextPoint);
+
+      if (activePickMode === "start") {
+        setRouteStart(nextPoint);
+        setStartQuery(formattedPoint);
+        setStatus("Route start set from the map. Now set the end or run routing.");
+      } else {
+        setRouteEnd(nextPoint);
+        setEndQuery(formattedPoint);
+        setStatus("Route end set from the map. Now set the start or run routing.");
+      }
+
+      setPickMode(null);
+    });
+
     mapInstanceRef.current = map;
     segmentLayerRef.current = segmentLayer;
+    routeLayerRef.current = routeLayer;
+    pickerLayerRef.current = pickerLayer;
   }, []);
 
   useEffect(() => {
-    void loadAnalysis(DEFAULT_CENTER.lat, DEFAULT_CENTER.lon, DEFAULT_RADIUS_M);
-  }, []);
+    if (!pickerLayerRef.current) {
+      return;
+    }
+
+    pickerLayerRef.current.clearLayers();
+
+    if (routeStart) {
+      const startMarker = L.marker([routeStart.lat, routeStart.lon], {
+        draggable: true,
+        title: "Route start",
+      });
+
+      startMarker.on("dragend", (event: L.DragEndEvent) => {
+        const marker = event.target as L.Marker;
+        const nextLatLng = marker.getLatLng();
+        const nextPoint = { lat: nextLatLng.lat, lon: nextLatLng.lng };
+        setRouteStart(nextPoint);
+        setStartQuery(formatPoint(nextPoint));
+        setRoute(null);
+        setStatus("Route start moved. Run routing again to refresh the path.");
+      });
+
+      startMarker.bindTooltip("Route start");
+      startMarker.addTo(pickerLayerRef.current);
+    }
+
+    if (routeEnd) {
+      const endMarker = L.marker([routeEnd.lat, routeEnd.lon], {
+        draggable: true,
+        title: "Route end",
+      });
+
+      endMarker.on("dragend", (event: L.DragEndEvent) => {
+        const marker = event.target as L.Marker;
+        const nextLatLng = marker.getLatLng();
+        const nextPoint = { lat: nextLatLng.lat, lon: nextLatLng.lng };
+        setRouteEnd(nextPoint);
+        setEndQuery(formatPoint(nextPoint));
+        setRoute(null);
+        setStatus("Route end moved. Run routing again to refresh the path.");
+      });
+
+      endMarker.bindTooltip("Route end");
+      endMarker.addTo(pickerLayerRef.current);
+    }
+  }, [routeStart, routeEnd]);
 
   useEffect(() => {
     if (!analysis || !segmentLayerRef.current) {
@@ -94,6 +180,56 @@ function App() {
     }
   }, [analysis]);
 
+  useEffect(() => {
+    if (!routeLayerRef.current) {
+      return;
+    }
+
+    routeLayerRef.current.clearLayers();
+    if (!route) {
+      return;
+    }
+
+    for (const segment of route.segments) {
+      const polyline = L.polyline(
+        segment.geometry.map((point) => [point.lat, point.lon]),
+        {
+          color: CLASS_COLORS[segment.score.bike_crossable_class],
+          weight: 7,
+          opacity: 0.95,
+        }
+      );
+
+      polyline.on("click", () => {
+        setSelectedSegment(segment);
+      });
+
+      polyline.bindPopup(
+        `<strong>${segment.name}</strong><br />${segment.score.bike_crossable_label}<br />Comfort: ${segment.score.bike_comfort}/100`
+      );
+
+      polyline.addTo(routeLayerRef.current);
+    }
+
+    L.circleMarker([route.snapped_start.lat, route.snapped_start.lon], {
+      radius: 7,
+      color: "#0b8f55",
+      fillColor: "#0b8f55",
+      fillOpacity: 1,
+    })
+      .bindTooltip("Route start")
+      .addTo(routeLayerRef.current);
+
+    L.circleMarker([route.snapped_end.lat, route.snapped_end.lon], {
+      radius: 7,
+      color: "#c13f30",
+      fillColor: "#c13f30",
+      fillOpacity: 1,
+    })
+      .bindTooltip("Route end")
+      .addTo(routeLayerRef.current);
+  }, [route]);
+
   async function loadAnalysis(lat: number, lon: number, nextRadiusM: number) {
     setIsPending(true);
     setStatus("Fetching nearby road data from the backend...");
@@ -115,61 +251,65 @@ function App() {
     }
   }
 
-  async function handleSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleRouteSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!query.trim()) {
-      setStatus("Enter a location name first.");
+    if ((!routeStart && !startQuery.trim()) || (!routeEnd && !endQuery.trim())) {
+      setStatus("Set both route endpoints by map click or by typing both locations.");
       return;
     }
 
     setIsPending(true);
-    setStatus(`Searching for "${query}"...`);
+    setStatus("Resolving route endpoints...");
 
     try {
-      const results = await searchLocation(query.trim());
-      const result = results[0];
+      let nextRouteStart = routeStart;
+      let nextRouteEnd = routeEnd;
 
-      if (!result) {
-        setStatus("No matching place was found.");
+      if (!nextRouteStart && startQuery.trim()) {
+        const startResults = await searchLocation(startQuery.trim());
+        const startResult = startResults[0];
+        if (!startResult) {
+          setStatus("No matching start location was found.");
+          return;
+        }
+        nextRouteStart = { lat: startResult.lat, lon: startResult.lon };
+        setRouteStart(nextRouteStart);
+      }
+
+      if (!nextRouteEnd && endQuery.trim()) {
+        const endResults = await searchLocation(endQuery.trim());
+        const endResult = endResults[0];
+        if (!endResult) {
+          setStatus("No matching end location was found.");
+          return;
+        }
+        nextRouteEnd = { lat: endResult.lat, lon: endResult.lon };
+        setRouteEnd(nextRouteEnd);
+      }
+
+      if (!nextRouteStart || !nextRouteEnd) {
+        setStatus("Both route endpoints must be resolved before routing.");
         return;
       }
 
-      const nextCenter = { lat: result.lat, lon: result.lon };
-      setCenter(nextCenter);
-      setStatus(`Found ${result.display_name}. Loading nearby roads...`);
-      await loadAnalysis(nextCenter.lat, nextCenter.lon, radiusM);
+      setStatus("Finding a bike-safe route...");
+      const response = await findRoute(nextRouteStart, nextRouteEnd, Math.max(radiusM, 600));
+      setRoute(response);
+      setSelectedSegment(response.segments[0] ?? null);
+      setCenter(response.snapped_start);
+
+      const map = mapInstanceRef.current;
+      if (map) {
+        const bounds = L.latLngBounds(response.geometry.map((point) => [point.lat, point.lon] as [number, number]));
+        map.fitBounds(bounds.pad(0.15));
+      }
+
+      setStatus(`Route found: ${Math.round(response.total_length_m)} m with average comfort ${response.average_comfort}/100.`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Search failed.");
+      setStatus(error instanceof Error ? error.message : "Route failed.");
     } finally {
       setIsPending(false);
     }
-  }
-
-  function handleUseMyLocation() {
-    if (!navigator.geolocation) {
-      setStatus("Geolocation is not available in this browser.");
-      return;
-    }
-
-    setIsPending(true);
-    setStatus("Requesting your current location...");
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const nextCenter = {
-          lat: position.coords.latitude,
-          lon: position.coords.longitude,
-        };
-        setCenter(nextCenter);
-        await loadAnalysis(nextCenter.lat, nextCenter.lon, radiusM);
-        setIsPending(false);
-      },
-      () => {
-        setStatus("Unable to read your location.");
-        setIsPending(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
   }
 
   const summary = analysis?.summary ?? { total: 0, protected: 0, "low-stress": 0, shared: 0, "not-suitable": 0 };
@@ -179,35 +319,77 @@ function App() {
       <aside className="sidebar">
         <div className="panel">
           <p className="eyebrow">CyclePass MVP</p>
-          <h1>React frontend + Python backend</h1>
+          <h1>Bike-safe route finding</h1>
           <p className="lede">
-            This MVP uses only free OpenStreetMap-derived data. The backend fetches and scores nearby road segments;
-            the frontend renders them for inspection on a live map.
+            Set a start and end point, then let the backend avoid hostile roads and prefer calmer bike-usable links.
           </p>
         </div>
 
-        <form className="panel controls" onSubmit={handleSearchSubmit}>
+        <form className="panel controls" onSubmit={handleRouteSubmit}>
+          <h2>Route planner</h2>
+
           <label className="field">
-            <span>Search location</span>
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Warsaw, Berlin, Amsterdam..."
-            />
+            <span>Start location</span>
+            <div className="picker-field">
+              <input
+                type="search"
+                value={startQuery}
+                onChange={(event) => {
+                  setStartQuery(event.target.value);
+                  setRouteStart(null);
+                  setRoute(null);
+                }}
+                placeholder="Type a start location or pick it on the map"
+              />
+              <button
+                type="button"
+                className="picker-button"
+                disabled={isPending}
+                onClick={() => {
+                  setPickMode("start");
+                  setStatus("Click on the map to set the route start.");
+                }}
+              >
+                {pickMode === "start" ? "Picking..." : "Pick"}
+              </button>
+            </div>
           </label>
 
-          <div className="button-row">
+          <label className="field">
+            <span>End location</span>
+            <div className="picker-field">
+              <input
+                type="search"
+                value={endQuery}
+                onChange={(event) => {
+                  setEndQuery(event.target.value);
+                  setRouteEnd(null);
+                  setRoute(null);
+                }}
+                placeholder="Type a destination or pick it on the map"
+              />
+              <button
+                type="button"
+                className="picker-button"
+                disabled={isPending}
+                onClick={() => {
+                  setPickMode("end");
+                  setStatus("Click on the map to set the route end.");
+                }}
+              >
+                {pickMode === "end" ? "Picking..." : "Pick"}
+              </button>
+            </div>
+          </label>
+
+          <div className="route-builder">
             <button type="submit" disabled={isPending}>
-              Search
-            </button>
-            <button type="button" disabled={isPending} onClick={handleUseMyLocation}>
-              Use my location
+              Find bike-safe route
             </button>
           </div>
 
           <label className="field">
-            <span>Fetch radius</span>
+            <span>Routing fetch radius</span>
             <input
               type="range"
               min="150"
@@ -219,6 +401,14 @@ function App() {
             <strong>{radiusM} m</strong>
           </label>
 
+          <p className="status">{status}</p>
+        </form>
+
+        <section className="panel controls">
+          <h2>Area inspection</h2>
+          <p className="detail-note">
+            Segment analysis is secondary now. Use it only when you want to inspect the current map center manually.
+          </p>
           <button
             type="button"
             disabled={isPending}
@@ -228,9 +418,7 @@ function App() {
           >
             Analyze current map center
           </button>
-
-          <p className="status">{status}</p>
-        </form>
+        </section>
 
         <section className="panel">
           <h2>Legend</h2>
@@ -256,6 +444,35 @@ function App() {
               </div>
             ))}
           </dl>
+        </section>
+
+        <section className="panel">
+          <h2>Route summary</h2>
+          {route ? (
+            <>
+              <dl className="summary">
+                <div>
+                  <dt>Distance</dt>
+                  <dd>{Math.round(route.total_length_m)} m</dd>
+                </div>
+                <div>
+                  <dt>Avg comfort</dt>
+                  <dd>{route.average_comfort}</dd>
+                </div>
+                <div>
+                  <dt>Mode</dt>
+                  <dd>{route.routing_mode === "strict" ? "bike-safe" : "safest available"}</dd>
+                </div>
+              </dl>
+              <ul className="reason-list">
+                {route.explanation.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p>No route calculated yet.</p>
+          )}
         </section>
       </aside>
 
@@ -310,10 +527,14 @@ function SegmentDetails({ segment }: { segment: Segment }) {
           <dd>{segment.score.confidence}</dd>
         </div>
         <div>
-          <dt>OSM way id</dt>
+          <dt>Segment id</dt>
           <dd>{segment.id}</dd>
         </div>
       </dl>
+
+      <p className="detail-note">
+        Parent OSM way: {segment.parent_way_id ?? "unknown"}
+      </p>
 
       <h3>Why</h3>
       <ul className="reason-list">
@@ -358,6 +579,14 @@ function fallbackClassLabel(className: SegmentClass): string {
     return "Sidewalk/shared path usable by bike";
   }
   return "Not suitable for cycling";
+}
+
+function formatPoint(point: { lat: number; lon: number } | null): string {
+  if (!point) {
+    return "not set";
+  }
+
+  return `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`;
 }
 
 export default App;

@@ -11,9 +11,11 @@ export type SegmentScore = {
 };
 
 export type Segment = {
-  id: number;
+  id: string;
+  parent_way_id?: number;
   name: string;
   geometry: Array<{ lat: number; lon: number }>;
+  length_m: number;
   tags: Record<string, string>;
   score: SegmentScore;
 };
@@ -29,4 +31,18 @@ export type SearchResult = {
   display_name: string;
   lat: number;
   lon: number;
+};
+
+export type RouteResponse = {
+  start: { lat: number; lon: number };
+  end: { lat: number; lon: number };
+  snapped_start: { lat: number; lon: number };
+  snapped_end: { lat: number; lon: number };
+  radius_m: number;
+  total_length_m: number;
+  average_comfort: number;
+  routing_mode: "strict" | "fallback";
+  explanation: string[];
+  segments: Segment[];
+  geometry: Array<{ lat: number; lon: number }>;
 };

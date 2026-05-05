@@ -111,6 +111,13 @@ input[type="search"] {
   background: white;
 }
 
+.picker-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
 input[type="range"] {
   width: 100%;
 }
@@ -143,6 +150,16 @@ button:disabled {
 .status {
   margin-bottom: 0;
   min-height: 2.8em;
+}
+
+.route-builder {
+  display: grid;
+  gap: 10px;
+}
+
+.picker-button {
+  min-width: 82px;
+  white-space: nowrap;
 }
 
 .legend,
@@ -194,6 +211,12 @@ button:disabled {
 
 .detail-panel {
   min-height: 240px;
+}
+
+.detail-note {
+  margin-bottom: 14px;
+  color: var(--muted);
+  font-size: 0.9rem;
 }
 
 .metric-grid {

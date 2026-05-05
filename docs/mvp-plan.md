@@ -2,7 +2,9 @@
 
 ## Goal
 
-Build a city-scale pilot that classifies road segments into four classes:
+Build a city-scale pilot that helps a rider find the best bike route between two points while avoiding roads that are unsafe, hostile, or unsuitable for cycling.
+
+That requires classifying road segments into four classes:
 
 1. protected / dedicated bike infrastructure
 2. low-stress mixed street
@@ -21,9 +23,11 @@ Inputs:
 
 Outputs:
 
-- class
+- segment class
 - confidence
 - explanation
+- route recommendation
+- route-level explanation
 
 ## Recommended MVP Strategy
 
@@ -31,6 +35,8 @@ Start with a two-stage system:
 
 1. rule-based baseline from OSM tags
 2. vision model only for ambiguous segments
+3. routing graph built from scored segments
+4. comfort-aware shortest-path search between origin and destination
 
 Examples:
 
@@ -38,6 +44,12 @@ Examples:
 - `highway=residential` and `maxspeed<=30` -> likely class 2
 - arterial at `60 km/h` with no bike infrastructure -> likely class 4
 - unclear or conflicting cases -> send to image model
+
+Routing interpretation:
+
+- segments that are class 4 because they are hostile or effectively unsafe should be excluded or near-excluded from routing
+- segments that are legal but uncomfortable should remain available only as costly fallbacks
+- protected and low-stress segments should be preferred even when the route is slightly longer in meters
 
 ## Annotation Strategy
 
@@ -68,13 +80,17 @@ Annotators should see:
 - 4-class classifier
 - OSM + Mapillary integration
 - web map with scores and explanations
+- route graph over nearby scored segments
+- start/end route request
+- route rendering with route summary and reasoning
 
 ### Phase 2
 
-- `0-100` comfort score
-- bicycle route optimization
+- stronger `0-100` comfort score calibration
+- city-scale and corridor-scale bicycle route optimization
 - missing-map-data detection
 - region-specific legality rules
+- route alternatives and rider profile tuning
 
 ## Success Criteria
 
@@ -85,6 +101,8 @@ Annotators should see:
 - no individual MVP class has F1 below `0.60`
 - calibration error is tracked and reviewed before release
 - the escalated vision path outperforms the rules-only baseline on the ambiguous subset
+- the router should not choose highway or highway-like segments unless protected bicycle infrastructure is explicitly present
 - at least one downstream benchmark is defined:
   - routing: preferred-route agreement against curated bicycle routes
+  - routing safety: rate of hostile-segment inclusion on benchmark routes
   - QA: precision at top-k for likely missing or inconsistent OSM bike tags

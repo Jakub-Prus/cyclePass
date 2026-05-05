@@ -124,6 +124,9 @@ def _is_likely_rideable_unmapped_path(tags: dict[str, Any]) -> bool:
     if tags["highway"] == "pedestrian":
         return False
 
+    if tags["footway"] == "sidewalk":
+        return True
+
     if tags["surface"]:
         return tags["surface"] in RIDEABLE_PATH_SURFACES
 

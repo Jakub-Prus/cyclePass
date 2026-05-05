@@ -2,9 +2,9 @@
 
 ## Summary
 
-CyclePass classifies whether a road segment is realistically usable by bicycle and how comfortable it is for different riders.
+CyclePass should help someone find the best bike route between two points without getting pushed onto hostile roads such as highways or high-speed arterials.
 
-This is better framed as cycling passability / rideability classification than bike-lane detection. The core unit is a short road segment rather than a full road or a single image.
+The core technical primitive is still a short road segment, because the product needs to classify whether each segment is realistically usable by bicycle and how comfortable it is. But segment scoring is not the end goal. It is the routing foundation.
 
 ## Why This Project Matters
 
@@ -15,7 +15,7 @@ Existing work tends to focus on one narrow task:
 - traffic-sign or object detection
 - bikeway-network extraction
 
-CyclePass combines these into a more useful product: a multimodal road-segment scorer that reasons over both visual and map-based evidence.
+CyclePass combines these into a more useful product: a multimodal road-segment scorer that feeds a routing engine. The user value comes from avoiding unsafe route suggestions that generic maps may produce.
 
 ## Inputs
 
@@ -35,6 +35,8 @@ For each road segment:
 - `bike_crossable_class`
 - `confidence`
 - explanation and evidence fields
+- route-level recommendation between origin and destination
+- route explanation for why a path was preferred or rejected
 
 ## Suggested Classification Taxonomy
 
@@ -83,6 +85,8 @@ The derivation should preserve the distinction between legal rideability, physic
 - a single image can miss hidden barriers or width constraints
 - intersections are harder than mid-block segments
 - narrowness and safety are partly subjective without geometry estimation
+- routing objectives can become ambiguous if distance and comfort are not explicitly balanced
+- disconnected or weakly mapped bike networks may require fallback behavior
 
 ## Recommendation
 
@@ -91,4 +95,5 @@ Start with a hybrid rule-based + ML MVP:
 - OSM-driven baseline
 - image model only for ambiguous rule outcomes
 - explainable outputs
+- routing layer that treats hostile roads as banned or heavily penalized
 - country-specific rules added later

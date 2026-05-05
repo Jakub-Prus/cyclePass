@@ -2,7 +2,7 @@
 
 ## System Overview
 
-CyclePass should score short road segments with a hybrid pipeline that fuses map attributes, street-level imagery, and explicit policy rules.
+CyclePass should score short road segments with a hybrid pipeline that fuses map attributes, street-level imagery, and explicit policy rules, then use those scored segments to compute bike-safe routes.
 
 ## Processing Flow
 
@@ -14,8 +14,11 @@ CyclePass should score short road segments with a hybrid pipeline that fuses map
 6. Fuse structured and visual features for escalated segments only.
 7. Apply a rules layer for legal and safety overrides.
 8. Emit class, confidence, score, and explanation.
+9. Build a routing graph from scored segments.
+10. Run a comfort-aware shortest-path algorithm over the graph.
+11. Return route geometry, route explanation, and segment-level evidence.
 
-This is the MVP architecture. A future v2 can move to an always-on fused model, but the initial system should be a true two-path pipeline.
+This is the MVP architecture. A future v2 can move to an always-on fused model, but the initial system should be a true two-path pipeline with a routing layer on top.
 
 ## Core Components
 
@@ -31,6 +34,8 @@ Each segment should include:
 - bicycle and sidewalk tags
 - intersection flags
 - optional slope/elevation
+- segment length in meters
+- graph endpoint identifiers or sufficient geometry to derive them
 
 ### 2. Visual Understanding
 
@@ -82,8 +87,29 @@ Some conditions should remain hard or semi-hard rules:
 
 The rules layer must not collapse legality, physical traversability, and comfort into one field. Those signals should remain separate and then be mapped into the final class.
 
+### 6. Routing Layer
+
+The routing layer is the primary product surface for end users.
+
+Recommended MVP behavior:
+
+- exclude segments that are legally not rideable
+- heavily penalize segments that are high-speed, high-stress, or otherwise hostile
+- prefer protected infrastructure, calm mixed streets, and rideable shared paths
+- minimize cyclist-weighted route cost rather than raw geometric distance
+
+Suggested MVP route-cost design:
+
+- `edge_cost = length_m * comfort_penalty_factor`
+- low-stress or protected segments should keep the factor near `1.0`
+- uncomfortable but legal segments should carry a moderate penalty
+- hostile roads should carry an extreme penalty or be excluded
+
+The exact penalty values should live in named constants and remain explicit in one routing-policy module.
+
 ## Product Surfaces
 
+- bike-safe routing API
 - scoring API
 - map QA dashboard
 - routing-engine integration
